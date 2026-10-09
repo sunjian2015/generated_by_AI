@@ -158,6 +158,7 @@ class SimpleDiffusionTransformer(nn.Module):
         super().__init__()
         self.dim = dim
         self.num_layers = num_layers
+        self.num_heads = num_heads
         
         # Input projection
         self.input_proj = nn.Linear(in_channels, dim)
@@ -218,7 +219,7 @@ class SimpleDiffusionTransformer(nn.Module):
             t_emb = t_emb.unsqueeze(1)  # [B, 1, dim]
         else:  # [B, F]
             t_emb = self.time_embed(self.get_timestep_embedding(timestep.flatten(), self.dim))
-            t_emb = t_emb.view(B, -1, self.dim)  # [B, F, dim]
+            t_emb = t_emb.view(B, -1, self.dim).repeat(1, H * W, 1)  # [B, L, dim]
         
         x = x + t_emb
         
@@ -299,11 +300,11 @@ class CausalVideoInferencePipeline:
         kv_caches = []
         for _ in range(self.model.num_layers):
             kv_caches.append({
-                'k': torch.zeros(batch_size, max_seq_len, self.model.num_layers, 
-                               self.model.dim // self.model.num_layers, 
+                'k': torch.zeros(batch_size, max_seq_len, self.model.num_heads, 
+                               self.model.dim // self.model.num_heads, 
                                device=device, dtype=dtype),
-                'v': torch.zeros(batch_size, max_seq_len, self.model.num_layers,
-                               self.model.dim // self.model.num_layers,
+                'v': torch.zeros(batch_size, max_seq_len, self.model.num_heads,
+                               self.model.dim // self.model.num_heads,
                                device=device, dtype=dtype)
             })
         return kv_caches
@@ -535,7 +536,7 @@ class SelfForcingTrainer:
         DMD loss = 0.5 * ||x0 - (x0 - grad)||^2
         where grad = (fake_score - teacher_score) / normalizer
         """
-        B, F, C, H, W = generated_frames.shape
+        B, num_frames, C, H, W = generated_frames.shape
         
         # Sample random timestep for score evaluation
         t = torch.randint(20, 980, (B, F), device=generated_frames.device).long()
@@ -544,8 +545,8 @@ class SelfForcingTrainer:
         noise = torch.randn_like(generated_frames)
         alpha = (1000 - t.float()) / 1000.0
         sigma = t.float() / 1000.0
-        noisy_frames = alpha.view(B, F, 1, 1, 1) * generated_frames + \
-                      sigma.view(B, F, 1, 1, 1) * noise
+        noisy_frames = alpha.view(B, num_frames, 1, 1, 1) * generated_frames + \
+                      sigma.view(B, num_frames, 1, 1, 1) * noise
         
         # Compute fake score (discriminator)
         pred_fake = self.discriminator(noisy_frames, timestep=t, context=context)
