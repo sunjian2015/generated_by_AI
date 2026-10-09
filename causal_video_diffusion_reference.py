@@ -539,7 +539,7 @@ class SelfForcingTrainer:
         B, num_frames, C, H, W = generated_frames.shape
         
         # Sample random timestep for score evaluation
-        t = torch.randint(20, 980, (B, F), device=generated_frames.device).long()
+        t = torch.randint(20, 980, (B, num_frames), device=generated_frames.device).long()
         
         # Add noise to generated frames
         noise = torch.randn_like(generated_frames)
